@@ -46,17 +46,22 @@ class qtype_coderunner_renderer extends qtype_renderer {
      * @param question_display_options $options controls what should and should not be displayed.
      * @return string HTML fragment.
      */
+
+    // variable to hold the answer
+    public $current_answer;
+    public $current_language;
+
     public function formulation_and_controls(question_attempt $qa, question_display_options $options) {
         global $CFG, $PAGE;
         global $USER;
 
         $question = $qa->get_question();
         $qid = $question->id;
-	if (empty($USER->coderunnerquestionids)) {
-            $USER->coderunnerquestionids = array($qid);  // Record in case of AJAX request
-	} else {
-	    array_push($USER->coderunnerquestionids, $qid); // Array of active qids
-	}
+        if (empty($USER->coderunnerquestionids)) {
+                $USER->coderunnerquestionids = array($qid);  // Record in case of AJAX request
+        } else {
+            array_push($USER->coderunnerquestionids, $qid); // Array of active qids
+        }
         $divid = "qtype_coderunner_problemspec$qid";
         $params = json_decode($question->templateparams);
         $qtext = $question->format_questiontext($qa);
@@ -166,6 +171,10 @@ class qtype_coderunner_renderer extends qtype_renderer {
                 'data-lang' => ucwords($currentlanguage),
                 'data-test0' => $question->testcases ? $question->testcases[0]->testcode : ''
         );
+
+        // getting current_language and current_answer
+        $this->current_language = strtolower($currentlanguage);
+        $this->current_answer = $currentanswer;
 
         if ($options->readonly) {
             $taattributes['readonly'] = 'readonly';
@@ -383,15 +392,55 @@ class qtype_coderunner_renderer extends qtype_renderer {
         }
         $fb .= empty($outcome->epiloguehtml) ? '' : $outcome->epiloguehtml;
 
-        // Issue a bright yellow warning if using jobe2, except when running behat.
-        $jobeserver = get_config('qtype_coderunner', 'jobe_host');
-        $apikey = get_config('qtype_coderunner', 'jobe_apikey');
-        if ($jobeserver == constants::JOBE_HOST_DEFAULT &&
-                $apikey == constants::JOBE_HOST_DEFAULT_API_KEY &&
-                $CFG->prefix !== 'b_') {
-            $fb .= get_string('jobe_warning_html', 'qtype_coderunner');
-        }
+        // suppressing warning, just for testing
 
+        // // Issue a bright yellow warning if using jobe2, except when running behat.
+        // $jobeserver = get_config('qtype_coderunner', 'jobe_host');
+        // $apikey = get_config('qtype_coderunner', 'jobe_apikey');
+        // if ($jobeserver == constants::JOBE_HOST_DEFAULT &&
+        //         $apikey == constants::JOBE_HOST_DEFAULT_API_KEY &&
+        //         $CFG->prefix !== 'b_') {
+        //     $fb .= get_string('jobe_warning_html', 'qtype_coderunner');
+        // }
+
+        // creating json for post request
+        $post_body = array (
+            "data"=> array (
+                "fileType"=>$this->current_language,
+                "code"=>json_encode($this->current_answer),
+                "language"=>$this->current_language
+            ),
+            "passKey"=>"nsCompile"
+        );
+        $post_body = json_encode($post_body);
+
+        // making a curl request
+
+        $curl = curl_init();
+
+        curl_setopt_array($curl, array(
+        CURLOPT_URL => "http://10.4.12.247:3500/api/readability",
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => "",
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 0,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => "POST",
+        CURLOPT_POSTFIELDS => $post_body,
+        CURLOPT_HTTPHEADER => array(
+            "Content-Type: application/json"
+        ),
+        ));
+
+        $response = curl_exec($curl);
+        
+        curl_close($curl);
+        
+        $response = json_decode($response, true);
+
+        $fb .= "Readability Score : ";
+        $fb .= $response["FinalReadabilityScore"];
         return $fb;
     }
 
